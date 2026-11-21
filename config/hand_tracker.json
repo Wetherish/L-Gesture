@@ -1,0 +1,13 @@
+{
+  "camera_name": "LVNext Camera",
+  "camera_resolution": [1280, 720],
+  "camera_fps": 30,
+  "show_original_feed": false,
+  "show_cropped_feed": true,
+  "websocket_port": 9000,
+  "hand_smoothing": {
+    "enabled": true,
+    "alpha": 0.35,
+    "reset_after_ms": 250
+  }
+}
