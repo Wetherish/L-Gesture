@@ -21,6 +21,13 @@
     </div>
     <div class="actions" role="group" aria-label="Camera and photo controls">
       <button id="camera-toggle" class="button subtle" type="button" aria-pressed="false">Turn on camera</button>
+      <select id="camera-device" class="button subtle" aria-label="Camera">
+        <option value="">Default camera</option>
+      </select>
+      <select id="gesture-source" class="button subtle" aria-label="Gesture source">
+        <option value="camera">Studio camera gestures</option>
+        <option value="logitech">Logitech Hand Tracker</option>
+      </select>
       <button id="gesture-toggle" class="button subtle" type="button" aria-pressed="false">Turn on gestures</button>
       <button id="select-area" class="button subtle" type="button" aria-pressed="false" disabled>Select area</button>
       <button id="reset-area" class="button subtle" type="button" hidden>Reset area</button>
@@ -32,6 +39,7 @@
         <button id="pin" class="button primary" type="button" disabled><span data-icon="pin"></span>Pin photo</button>
       </div>
     </div>
+    <p id="gesture-status" class="gesture-status" role="status" hidden></p>
     <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
     <p id="selection-status" class="sr-only" role="status" aria-live="polite"></p>
   </main>

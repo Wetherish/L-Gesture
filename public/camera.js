@@ -1,16 +1,26 @@
-export async function openCamera(video, onEnded) {
+export async function openCamera(video, onEnded, deviceId) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Camera access requires localhost or HTTPS.');
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
+      video: {
+        ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'user' }),
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+      audio: false,
     });
     video.srcObject = stream;
     await video.play();
-    stream.getVideoTracks()[0].addEventListener('ended', onEnded, { once: true });
+    const track = stream.getVideoTracks()[0];
+    track.addEventListener('ended', onEnded, { once: true });
   } catch (error) {
     closeCamera(video);
     if (error.name === 'NotAllowedError') throw new Error('Allow camera access in your browser and try again.');
+    if (error.name === 'NotReadableError') throw new Error('Could not read the camera. Close other apps using it and try again.');
+    if (error.name === 'NotFoundError' || error.name === 'OverconstrainedError') {
+      throw new Error('Camera unavailable. Choose another camera and try again.');
+    }
     throw new Error('Could not start the camera. You can use a sample photo.');
   }
 }

@@ -176,7 +176,7 @@ A local camera studio for taking snapshots and pinning them over the live video 
 
 ### Getting started
 
-Requires Node.js 22 or later. Run `npm start` and open [localhost:3000](http://localhost:3000). Allow camera access when prompted. Click **Take photo** or **Random photo**, then click **Pin photo**.
+Requires Node.js 22 or later. Run `npm start` and open [localhost:3000](http://localhost:3000). Allow camera access when prompted. Use the **Camera** menu to switch between connected cameras. Click **Take photo** or **Random photo**, then click **Pin photo**.
 
 Click **Select area** and drag a rectangle over the camera feed. Click **Take photo** to capture that rectangle. **Reset area** restores the centered square. When selecting an area with the keyboard, use the arrow keys to move it, Shift+arrow keys to resize it, and Enter to confirm. The camera feed stays live while you review a snapshot. Drag pinned photos with a mouse or on a touchscreen to move or overlap them. Drag the lower-right corner handle to resize a photo while keeping its proportions.
 
@@ -186,7 +186,7 @@ Share the app window or browser tab during a meeting. The live video stays in th
 
 ### Move photos with your hand
 
-Start Logitech Hand Tracker with `l-gesture tracker start` and its default WebSocket port (9000). Click **Turn on gestures** in the studio. Move an open hand until the cursor is over a pinned photo, pinch your thumb and index finger together, then move your hand. Release the pinch to save the position. The cursor maps the tracker’s hand coordinates to the entire preview, so follow the cursor when the two camera views differ.
+Leave **Studio camera gestures** selected and click **Turn on gestures**. The studio downloads the MediaPipe runtime and model on first use and processes the camera frames locally. To use the external tracker, select **Logitech Hand Tracker** and start it with `l-gesture tracker start` on port 9000 before enabling gestures. Move an open hand until the cursor is over a pinned photo, pinch your thumb and index finger together, then move your hand. You can also select a photo first and pinch anywhere away from other photos to grab it. Release the pinch to save the position. The cursor maps the tracker’s hand coordinates to the entire preview, so follow the cursor when the two camera views differ.
 
 ### Keyboard and keypad
 

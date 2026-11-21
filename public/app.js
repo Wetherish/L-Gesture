@@ -23,6 +23,7 @@ const selectArea = byId('select-area');
 const resetArea = byId('reset-area');
 const draftImage = byId('draft-image');
 const toggle = byId('camera-toggle');
+const cameraDevice = byId('camera-device');
 const capture = byId('capture');
 const discard = byId('discard');
 const pinButton = byId('pin');
@@ -77,6 +78,7 @@ function updateSource() {
   toggle.textContent = connecting ? 'Starting…' : camera ? 'Turn off camera' : 'Turn on camera';
   toggle.setAttribute('aria-pressed', String(camera));
   toggle.disabled = connecting;
+  cameraDevice.disabled = connecting;
   capture.disabled = !camera || saving;
   selectArea.disabled = !camera || saving;
   selectArea.setAttribute('aria-pressed', String(crop.editing));
@@ -108,6 +110,29 @@ async function toggleCamera() {
   return true;
 }
 
+async function refreshCameraDevices() {
+  const devices = await navigator.mediaDevices?.enumerateDevices?.().catch(() => []);
+  if (!devices) return;
+  const selected = cameraDevice.value;
+  const cameras = devices.filter(device => device.kind === 'videoinput' && device.deviceId);
+  const activeId = video.srcObject?.getVideoTracks()[0]?.getSettings().deviceId;
+  const options = cameras.map((device, index) => new Option(
+    device.label || 'Camera ' + (index + 1), device.deviceId,
+  ));
+  cameraDevice.replaceChildren(new Option('Default camera', ''), ...options);
+  const preferred = selected || activeId;
+  if (cameras.some(device => device.deviceId === preferred)) cameraDevice.value = preferred;
+}
+
+cameraDevice.addEventListener('change', () => {
+  if (camera) {
+    closeCamera(video);
+    camera = false;
+    startCamera();
+  }
+});
+navigator.mediaDevices?.addEventListener('devicechange', refreshCameraDevices);
+
 async function startCamera() {
   connecting = true;
   updateSource();
@@ -117,7 +142,7 @@ async function startCamera() {
       camera = false;
       updateSource();
       announce('The camera disconnected.', true);
-    });
+    }, cameraDevice.value);
     camera = true;
     return true;
   } catch (error) {
@@ -126,6 +151,7 @@ async function startCamera() {
   } finally {
     connecting = false;
     updateSource();
+    refreshCameraDevices();
   }
 }
 
@@ -399,7 +425,11 @@ function addCard(pin, focus = false) {
     card.classList.add('dragging');
     return {
       move(clientX, clientY) {
-        if (drag?.id === id) showPosition(positionAt({ clientX, clientY }));
+        if (drag?.id !== id) return;
+        const position = positionAt({ clientX, clientY });
+        entry.position = position;
+        card.style.left = position.x * drag.width + 'px';
+        card.style.top = position.y * drag.height + 'px';
       },
       finish() {
         finishDrag({ pointerId: id });
@@ -470,11 +500,15 @@ for (const [action, { button }] of sourceActions) {
 bindKeyboard(dispatchAction);
 bindGestures({
   button: byId('gesture-toggle'),
+  status: byId('gesture-status'),
+  source: byId('gesture-source'),
+  video,
   cursor: byId('hand-cursor'),
   layer,
   blocked: () => crop.editing,
   grab(x, y) {
-    if (dispatchAction('photo.selectAt', { x, y })) return cards.get(selectedId).gestureDrag(x, y);
+    dispatchAction('photo.selectAt', { x, y });
+    return cards.get(selectedId)?.gestureDrag(x, y);
   },
 });
 

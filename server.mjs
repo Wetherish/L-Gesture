@@ -13,6 +13,7 @@ const staticFiles = new Map([
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/camera.js', ['camera.js', 'text/javascript; charset=utf-8']],
   ['/crop.js', ['crop.js', 'text/javascript; charset=utf-8']],
+  ['/hand-tracking.js', ['hand-tracking.js', 'text/javascript; charset=utf-8']],
   ['/gestures.js', ['gestures.js', 'text/javascript; charset=utf-8']],
   ['/keyboard.js', ['keyboard.js', 'text/javascript; charset=utf-8']],
 ]);

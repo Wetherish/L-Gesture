@@ -83,3 +83,7 @@ svg { width: 19px; height: 19px; }
   pointer-events: none;
 }
 .hand-cursor.grabbing { background: #157b49; }
+
+#camera-device { max-width: min(220px, 80vw); cursor: pointer; }
+
+.gesture-status { position: absolute; left: 16px; top: 12px; margin: 0; z-index: 3; border-radius: 6px; padding: 6px 9px; background: #181320de; color: white; font-size: 12px; pointer-events: none; }

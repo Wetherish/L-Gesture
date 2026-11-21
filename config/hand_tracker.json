@@ -7,7 +7,7 @@
   "websocket_port": 9000,
   "hand_smoothing": {
     "enabled": true,
-    "alpha": 0.35,
+    "alpha": 0.75,
     "reset_after_ms": 250
   }
 }
