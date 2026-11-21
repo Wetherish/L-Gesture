@@ -17,3 +17,5 @@ audio_captures/
 !.env.example
 *.log
 .ruff_cache/
+
+.data/
