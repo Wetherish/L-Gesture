@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101015">
+  <title>L-Gesture · Camera Preview</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <main class="studio">
+    <div class="viewfinder" id="viewfinder" role="group" aria-label="Camera preview with pinned photos">
+      <video id="video" autoplay muted playsinline hidden></video>
+      <div id="guide" class="guide" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <div id="camera-empty" class="camera-empty"><span data-icon="video"></span><strong>Camera is off</strong></div>
+      <div id="pin-layer" class="pin-layer"></div>
+      <div id="crop-picker" class="crop-picker" role="group" tabindex="0" aria-label="Select capture area" aria-describedby="crop-help" hidden>
+        <p id="crop-help">Drag to draw the area. Use arrows to move, Shift+arrows to resize, or Enter to confirm.</p>
+      </div>
+    </div>
+    <div class="actions" role="group" aria-label="Camera and photo controls">
+      <button id="camera-toggle" class="button subtle" type="button" aria-pressed="false">Turn on camera</button>
+      <button id="select-area" class="button subtle" type="button" aria-pressed="false" disabled>Select area</button>
+      <button id="reset-area" class="button subtle" type="button" hidden>Reset area</button>
+      <button id="capture" class="button subtle" type="button" disabled><span data-icon="scan"></span>Take photo</button>
+      <button id="random" class="button subtle" type="button" disabled><span data-icon="shuffle"></span>Random photo</button>
+      <div id="draft" class="draft" hidden>
+        <img id="draft-image" alt="Photo preview">
+        <button id="discard" class="button subtle" type="button">Discard</button>
+        <button id="pin" class="button primary" type="button" disabled><span data-icon="pin"></span>Pin photo</button>
+      </div>
+    </div>
+    <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
+    <p id="selection-status" class="sr-only" role="status" aria-live="polite"></p>
+  </main>
+</body>
+</html>
