@@ -21,6 +21,8 @@ class TelemetryServer(socketserver.ThreadingTCPServer):
     def __init__(self):
         self.payload = {"type": "hand_telemetry", "hands": []}
         self.guard = threading.Lock()
+        self.disconnect = threading.Event()
+        self.stop_stream = threading.Event()
         self.connections = 0
         super().__init__(("127.0.0.1", 0), TelemetryHandler)
 
@@ -40,9 +42,13 @@ class TelemetryHandler(socketserver.BaseRequestHandler):
                               f"Sec-WebSocket-Accept: {accept}\r\n\r\n").encode())
         with self.server.guard:
             self.server.connections += 1
-        # Intentionally close each connection to exercise client reconnects.
+        # The test explicitly requests disconnection after checking the live stream.
+        # A fixed frame-count lifetime races slow first-time OpenCV rendering on CI.
         try:
-            for _ in range(30):
+            while not self.server.stop_stream.is_set():
+                if self.server.disconnect.is_set():
+                    self.server.disconnect.clear()
+                    return
                 with self.server.guard:
                     message = dict(self.server.payload)
                 message.setdefault("timestamp_ms", time.time() * 1000)
@@ -66,7 +72,7 @@ class HandsTests(unittest.TestCase):
         tracker = HandsTracker(server.server_address[1]).start()
 
         def wait_for(predicate):
-            end = time.monotonic() + 4
+            end = time.monotonic() + 10
             while time.monotonic() < end:
                 if predicate():
                     return
@@ -77,22 +83,29 @@ class HandsTests(unittest.TestCase):
                 "index_tip": {"x": .31, "y": .41},
                 "index_thumb_midpoint": {"x": .305, "y": .405},
                 "index_thumb_distance": .014}
+
+        def has_hands(count):
+            message, _ = tracker.snapshot()
+            return message is not None and len(message["hands"]) == count
+
         try:
             wait_for(lambda: tracker.snapshot()[0] is not None)
             self.assertEqual(tracker.snapshot()[0]["hands"], [])
             with server.guard:
                 server.payload["hands"] = [hand, hand]  # duplicate labels are legal
-            wait_for(lambda: len((tracker.snapshot()[0] or {}).get("hands", [])) == 2)
+            wait_for(lambda: has_hands(2))
             self.assertEqual(draw_hands_panel(tracker).shape, (720, 400, 3))
             with server.guard:
                 server.payload["hands"] = []
-            wait_for(lambda: tracker.snapshot()[0] is not None and tracker.snapshot()[0]["hands"] == [])
+            wait_for(lambda: has_hands(0))
+            server.disconnect.set()
             wait_for(lambda: server.connections >= 2 and tracker.snapshot()[0] is not None)
             with server.guard:
                 server.payload["timestamp_ms"] = (time.time() - 20) * 1000
             wait_for(lambda: tracker.snapshot()[1] == "Stale telemetry; waiting")
             self.assertIsNone(tracker.snapshot()[0])
         finally:
+            server.stop_stream.set()
             tracker.close()
             server.shutdown()
             server.server_close()
