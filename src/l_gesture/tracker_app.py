@@ -60,8 +60,10 @@ def install_tracker(root):
             finally:
                 subprocess.run(["hdiutil", "detach", str(mount)], check=True)
         else:
-            # NSIS per-user install. /D must be the final argument; no admin directory.
-            subprocess.run([str(download), "/S", f"/D={destination.parent}"], check=True)
+            # NSIS requires an unquoted /D tail, even with spaces. A normal argument
+            # list would quote it. This is a direct Windows CreateProcess call, no shell.
+            command = subprocess.list2cmdline([str(download), "/S"])
+            subprocess.run(command + f" /D={destination.parent}", check=True)
         if not destination.exists():
             raise RuntimeError(f"Installer did not create {destination}. See docs/SETUP.md for manual installation.")
     print(f"Installed: {destination}")

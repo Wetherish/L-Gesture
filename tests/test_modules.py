@@ -146,7 +146,7 @@ class PlatformTests(unittest.TestCase):
                 destination = root / ("tools/Hand Tracker.app" if system == "Darwin" else "tools/Hand Tracker/Hand Tracker.exe")
 
                 def simulate_install(command, **kwargs):
-                    if command[0] == "ditto" or command[0].endswith("setup.exe"):
+                    if (isinstance(command, list) and command[0] == "ditto") or (isinstance(command, str) and " /S /D=" in command):
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         destination.touch()
 
@@ -157,7 +157,8 @@ class PlatformTests(unittest.TestCase):
                         self.assertEqual([command[0] for command in commands], ["hdiutil", "ditto", "hdiutil"])
                         self.assertIn("-readonly", commands[0])
                     else:
-                        self.assertEqual(commands[0][1:], ["/S", f"/D={destination.parent}"])
+                        self.assertTrue(commands[0].endswith(f" /S /D={destination.parent}"))
+                        self.assertNotIn('"/D=', commands[0])
 
     def test_cli_help_and_headless_import(self):
         result = subprocess.run([sys.executable, "-m", "l_gesture", "--help"], capture_output=True, text=True)
