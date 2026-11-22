@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeReadingOrientation,normalizePerspectiveTransform,perspectiveMatrix,projectPerspective,perspectiveOutputGeometry,
+import {normalizeReadingOrientation,orderImageQuad,normalizePerspectiveTransform,perspectiveMatrix,projectPerspective,perspectiveOutputGeometry,
   renderPerspectiveFrame,createPerspectiveCaptureSource} from '../dist/perspective-crop.js';
 
 const rect={type:'perspective',quad:[{x:.2,y:.1},{x:.8,y:.1},{x:.8,y:.9},{x:.2,y:.9}]};
@@ -22,6 +22,7 @@ function canvasFactory(){
 
 test('reading orientation metadata only retains explicit known evidence or an exact unknown state',()=>{
   const values=[{status:'unknown',method:'unknown',clockwiseDegrees:null},
+    {status:'software-rotated',method:'page-corners-plus-180',clockwiseDegrees:180},
     {status:'text-upright',method:'page-corners',clockwiseDegrees:180},
     {status:'text-upright',method:'page-corners',clockwiseDegrees:-180},
     {status:'text-upright',method:'rotation',clockwiseDegrees:13.5},
@@ -39,10 +40,28 @@ test('reading orientation metadata only retains explicit known evidence or an ex
     {status:'unknown',method:'rotation',clockwiseDegrees:null},
     {status:'text-upright',method:'unknown',clockwiseDegrees:0},
     {status:'illustration-upright',method:'unknown',clockwiseDegrees:0},
+    {status:'software-rotated',method:'page-corners-plus-180',clockwiseDegrees:0},
+    {status:'software-rotated',method:'page-corners-plus-180',clockwiseDegrees:-180},
+    {status:'software-rotated',method:'page-corners',clockwiseDegrees:180},
     {status:'guessed',method:'rotation',clockwiseDegrees:180},
     ...[undefined,null,NaN,Infinity,'180',181,-181].map(clockwiseDegrees=>
       ({status:'text-upright',method:'rotation',clockwiseDegrees}))])
     assert.equal(normalizeReadingOrientation(input),null);
+});
+
+test('software corner ordering uses camera pixel aspect, deterministic ties, and repairs arbitrary input order without reading text',()=>{
+  const diamond=[{x:.2,y:.45},{x:.4,y:.1},{x:.8,y:.55},{x:.6,y:.9}];
+  const unordered=[diamond[2],diamond[0],diamond[3],diamond[1]],before=structuredClone(unordered);
+  const landscape=orderImageQuad(unordered,2000,1000),portrait=orderImageQuad(unordered,1000,2000);
+  assert.deepEqual(landscape,diamond);
+  assert.deepEqual(portrait,[diamond[1],diamond[2],diamond[3],diamond[0]]);
+  assert.deepEqual(unordered,before);
+  const tied=[{x:.1,y:.5},{x:.5,y:.1},{x:.9,y:.5},{x:.5,y:.9}];
+  assert.deepEqual(orderImageQuad(tied,1000,1000),[tied[1],tied[2],tied[3],tied[0]]);
+  for(const points of [[...diamond.slice(0,3),diamond[0]],
+    [{x:.1,y:.1},{x:.8,y:.1},{x:.8,y:.8},{x:.6,y:.2}],
+    [{x:.1,y:.1},{x:.2,y:.2},{x:.3,y:.3},{x:.4,y:.4}]])
+    assert.throws(()=>orderImageQuad(points,1000,1000),/corner|convex/);
 });
 
 test('perspective transforms copy only bounded clockwise convex corners',()=>{

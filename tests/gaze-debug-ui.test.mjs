@@ -102,6 +102,71 @@ test('an object-only scene fallback clears earlier gaze claims and uses a neutra
   assert.equal(h.ui.getState().confidence,null);assert.equal(h.byClass('gaze-debug').dataset.mapping,'unknown');h.ui.destroy();
 });
 
+test('ordinary object boundaries show an unrotated original-pixel crop for matched gaze and foreground fallback',()=>{
+  for(const matched of [true,false]){
+    let filterCalls=0;
+    const h=fixture({enhanceFrame(){filterCalls++;throw new Error('An ordinary object must not be filtered');}});
+    const original=image(),roiFrame=image(600,400),processed=image(600,400);
+    const roi={x:.2,y:.2,width:.5,height:.5},crop=matched?{x:.3,y:.3,width:.12,height:.15}:{x:.02,y:.8,width:.12,height:.15};
+    h.update('capture',{frame:original,sourceSize:{width:1200,height:800}});
+    const frozen=h.canvases.find(canvas=>canvas.context.operations.some(op=>op.name==='drawImage'&&op.args[0]===original));
+    h.update('roi',{frame:roiFrame,frameRegion:roi,roi,gaze:{x:.35,y:.35},calibrated:false,
+      mappingMethod:'seated-estimate-v1',assumptions:['Approximate seated position.'],gazeQuality:{kind:'seated-assumption',confidence:null}});
+    const mapping=matched?{}:{gaze:null,roi:null,calibrated:null,mappingMethod:'scene-object-model',assumptions:[],gazeQuality:null,uncertainty:null};
+    h.update('model',{pass:'object-boundaries',operation:'detect',frame:processed,frameRegion:{x:0,y:0,width:1,height:1},
+      boxes:[{bbox:crop,label:'Chocolate box',score:null}],crop,model:{id:'gpt-6.2-sol',name:'GPT-6.2 Sol'},
+      documentKind:undefined,transform:undefined,quad:undefined,scanEnhanced:true,...mapping});
+    assert.equal(h.byClass('gaze-debug-status').textContent,'Locating object boundaries');
+    assert.equal(h.byClass('gaze-debug-detail').textContent,'GPT-6.2 Sol · Object boundaries');
+    assert.ok(find(h.card('model'),node=>node.textContent==='Object bounds · model selection'));
+    h.update('result',{crop,message:'Live chocolate box pinned.'});
+    const output=h.canvas('result'),draws=output.context.operations.filter(op=>op.name==='drawImage');
+    assert.equal(output.hidden,false);assert.equal(draws.length,1);assert.equal(draws[0].args[0],frozen);
+    [crop.x*480,crop.y*320,crop.width*480,crop.height*320].forEach((value,index)=>near(draws[0].args[index+1],value));
+    assert.equal(output.context.operations.some(op=>op.name==='setTransform'),false);
+    assert.equal(filterCalls,0);assert.equal(h.ui.getState().scanEnhanced,false);
+    assert.equal(h.ui.getState().transform,null);assert.equal(h.ui.getState().documentKind,null);
+    assert.ok(find(h.card('result'),node=>node.textContent==='Original object crop · frozen preview'));
+    assert.ok(find(h.byClass('gaze-debug-metadata'),node=>node.textContent==='Rectangular crop · original colors and orientation'));
+    assert.equal(h.ui.getState().modelPass,'object-boundaries');
+    if(matched){
+      assert.equal(h.byClass('gaze-debug-latest').textContent,'≈ Seated estimate');
+      assert.deepEqual(h.ui.getState().gaze,{x:.35,y:.35});
+    }else{
+      assert.equal(h.byClass('gaze-debug-latest').textContent,'Scene object');
+      assert.equal(h.ui.getState().gaze,null);assert.equal(h.ui.getState().roi,null);assert.equal(h.ui.getState().calibrated,null);
+      assert.ok(find(h.byClass('gaze-debug-metadata'),node=>node.textContent==='Foreground object fallback without a matched gaze target'));
+    }
+    h.ui.destroy();
+  }
+});
+
+test('local object recovery replaces stale document details and retains the actual local detector score',()=>{
+  let filterCalls=0;
+  const h=fixture({enhanceFrame(){filterCalls++;throw new Error('Recovery must keep the real object colors');}}),frame=image();
+  const crop={x:.3,y:.2,width:.25,height:.4},quad=[{x:.3,y:.2},{x:.55,y:.2},{x:.55,y:.6},{x:.3,y:.6}];
+  h.update('capture',{frame,calibrated:true,mappingMethod:'scene-calibration-v1',gaze:{x:.4,y:.4}});
+  const frozen=h.canvases.find(canvas=>canvas.context.operations.some(op=>op.name==='drawImage'&&op.args[0]===frame));
+  h.update('model',{pass:'document-corners',operation:'detect',documentKind:'paper',quad,
+    transform:{type:'perspective',quad,rotationDegrees:180},cornerRefinement:{method:'edge-refined',verifiedEdges:4},
+    orientation:{status:'software-rotated',method:'page-corners-plus-180',clockwiseDegrees:180},scanEnhanced:true});
+  h.update('model',{pass:'local-object-recovery',operation:'detect',frame,mask:null,crop,
+    boxes:[{bbox:crop,label:'Cup',score:.84}],model:{id:'local-detector',name:'Local detector'},confidence:.84,scoreKind:'detector-category-score',
+    message:'AI found no object; kept the local cup detection.'});
+  assert.equal(h.byClass('gaze-debug-status').textContent,'AI found no object; kept the local cup detection.');
+  assert.match(h.byClass('gaze-debug-detail').textContent,/Local detector · Local object recovery · detector-category-score 84%/);
+  assert.ok(find(h.card('model'),node=>node.textContent==='Object bounds · local detection'));
+  h.update('result',{crop});
+  const state=h.ui.getState();assert.equal(state.modelPass,'local-object-recovery');assert.equal(state.confidence,.84);
+  assert.equal(state.documentKind,null);assert.equal(state.cornerQuad,null);assert.equal(state.cornerRefinement,null);
+  assert.equal(state.orientation,null);assert.equal(state.transform,null);assert.equal(state.scanEnhanced,false);assert.equal(filterCalls,0);
+  assert.equal(h.canvas('result').context.operations.filter(op=>op.name==='drawImage').at(-1).args[0],frozen);
+  assert.equal(h.byClass('gaze-debug-latest').textContent,'Calibrated');
+  assert.ok(find(h.byClass('gaze-debug-metadata'),node=>node.textContent==='Local detector crop retained after an AI object miss'));
+  assert.ok(find(h.card('result'),node=>node.textContent==='Original object crop · frozen preview'));
+  h.ui.destroy();
+});
+
 test('final perspective preview uses the original frozen pixels and the same fixed transform as the live pin',()=>{
   const h=fixture(),original=image(512,640),processed=image(400,400),transform={type:'perspective',quad:[{x:.2,y:.1},{x:.8,y:.1},{x:.8,y:.9},{x:.2,y:.9}]};
   h.update('capture',{frame:original,sourceSize:{width:512,height:640}});
@@ -427,4 +492,75 @@ test('a failed scan preview keeps its real rectified image visible and labels th
   assert.ok(find(h.card('result'),node=>node.textContent==='Straightened crop · frozen preview · filter preview unavailable'));
   assert.equal(find(h.card('result'),node=>node.textContent==='Straightened crop · scan filter'),undefined);
   assert.equal(h.ui.getState().stage,'result');h.ui.destroy();
+});
+
+test('document-corners refinement preserves existing gaze mapping while showing the unturned source quadrilateral',()=>{
+  const h=fixture(),quad=[{x:.25,y:.15},{x:.7,y:.2},{x:.8,y:.85},{x:.15,y:.8}];
+  h.update('capture',{frame:image(1200,800)});
+  h.update('roi',{gaze:{x:.45,y:.55},roi:{x:.1,y:.1,width:.8,height:.8},calibrated:false,
+    mappingMethod:'seated-estimate-v1',gazeQuality:{kind:'seated-assumption',confidence:null},assumptions:['Known scene placement.']});
+  const modelCanvas=h.canvas('model');modelCanvas.context.operations.length=0;
+  h.update('model',{pass:'document-corners',operation:'detect',frame:image(1200,800),frameRegion:{x:0,y:0,width:1,height:1},
+    quad,boxes:[],documentKind:'paper',cornerRefinement:{method:'model-corners',verifiedEdges:2}});
+  const state=h.ui.getState();assert.equal(state.modelPass,'document-corners');assert.equal(state.mappingMethod,'seated-estimate-v1');
+  assert.equal(state.calibrated,false);assert.deepEqual(state.gaze,{x:.45,y:.55});
+  assert.deepEqual(state.assumptions,['Known scene placement.']);assert.deepEqual(state.cornerQuad,quad);
+  assert.equal(h.byClass('gaze-debug-latest').textContent,'≈ Seated estimate');
+  assert.equal(h.byClass('gaze-debug-status').textContent,'Locating four page corners');
+  assert.equal(h.byClass('gaze-debug-detail').textContent,'Page corners');
+  assert.equal(modelCanvas.hidden,false,'a returned quadrilateral is visible even without a detector box');
+  const firstMove=modelCanvas.context.operations.find(op=>op.name==='moveTo');
+  near(firstMove.args[0],quad[0].x*480);near(firstMove.args[1],quad[0].y*320);
+  const lines=modelCanvas.context.operations.filter(op=>op.name==='lineTo');
+  for(let i=1;i<4;i++){near(lines[i-1].args[0],quad[i].x*480);near(lines[i-1].args[1],quad[i].y*320);}
+  assert.ok(find(h.card('model'),node=>node.textContent==='Four corners · model selection'));
+  h.update('model',{pass:'ranked-fallback',operation:'detect',boxes:[],quad:null});
+  assert.equal(h.ui.getState().modelPass,'');assert.equal(h.byClass('gaze-debug-detail').textContent,'Object detection');h.ui.destroy();
+});
+
+test('software document turn is explicit and enhancement receives the already-rectified 180-degree camera frame',()=>{
+  const calls=[],outputs=[];
+  const h=fixture({enhanceFrame(frame,{createCanvas}){
+    calls.push({frame,width:frame.width,height:frame.height,operations:frame.context.operations.slice()});
+    const output=createCanvas();output.width=frame.width;output.height=frame.height;outputs.push(output);return output;
+  }});
+  const original=image(512,640),processed=image(320,240);
+  const quad=[{x:.2,y:.1},{x:.8,y:.1},{x:.8,y:.9},{x:.2,y:.9}],transform={type:'perspective',quad,rotationDegrees:180};
+  const orientation={status:'software-rotated',method:'page-corners-plus-180',clockwiseDegrees:180};
+  h.update('capture',{frame:original,sourceSize:{width:512,height:640}});
+  const frozen=h.canvases.find(canvas=>canvas.context.operations.some(op=>op.name==='drawImage'&&op.args[0]===original));
+  h.update('model',{pass:'document-corners',operation:'detect',frame:processed,quad,documentKind:'notebook',
+    orientation:{...orientation,aiReadingDirection:'discard'},cornerRefinement:{method:'edge-refined',verifiedEdges:4}});
+  assert.equal(calls.length,0);
+  h.update('result',{crop:{x:.1,y:.05,width:.8,height:.9},transform,scanEnhanced:true});
+  assert.equal(calls.length,1);assert.equal(calls[0].frame,h.canvas('result'));
+  assert.equal(calls[0].width,231);assert.equal(calls[0].height,384);
+  const draws=calls[0].operations.filter(op=>op.name==='drawImage');assert.equal(draws.length,1);
+  const rectified=draws[0].args[0];assert.notEqual(rectified,frozen);
+  assert.ok(rectified.context.operations.filter(op=>op.name==='drawImage').every(op=>op.args[0]===frozen));
+  assert.ok(calls[0].operations.some(op=>op.name==='setTransform'&&op.args[0]<0&&op.args[3]<0),
+    'the geometric image is turned on both axes before scan enhancement runs');
+  assert.equal(h.canvas('result').context.operations.filter(op=>op.name==='drawImage').at(-1).args[0],outputs[0]);
+  assert.equal(outputs[0].width,1);assert.equal(outputs[0].height,1);
+  assert.deepEqual(h.ui.getState().cornerQuad,quad,'the source outline is not reordered for the software turn');
+  assert.deepEqual(h.ui.getState().orientation,orientation);assert.deepEqual(h.ui.getState().transform,transform);
+  assert.ok(find(h.card('result'),node=>node.textContent==='Straightened + 180° · scan filter'));
+  assert.ok(find(h.byClass('gaze-debug-metadata'),node=>node.textContent==='Page rectification, then 180° in software'));
+  assert.equal(find(h.byClass('gaze-debug-metadata'),node=>node.textContent==='Upright evidence'),undefined);
+  assert.equal(find(h.byClass('gaze-debug-metadata'),node=>node.textContent==='Content orientation'),undefined);
+  assert.equal(find(h.card('result'),node=>node.textContent.startsWith('Upright')),undefined);
+  const help=find(h.byClass('gaze-debug-help-body'),node=>node.textContent.includes('OpenAI step'));
+  assert.ok(help);assert.match(help.textContent,/orders those corners geometrically, straightens the page, then turns the result 180° in software/);
+  assert.doesNotMatch(help.textContent,/direction of text|reading order|upright|checks.*illustration/i);h.ui.destroy();
+});
+
+test('software-turn preview retains its explicit geometric label when the optional scan filter cannot render',()=>{
+  const h=fixture({enhanceFrame(){throw new Error('Readback unavailable');}});
+  h.update('capture',{frame:image(512,640)});
+  h.update('result',{crop:{x:.2,y:.1,width:.6,height:.8},documentKind:'paper',scanEnhanced:true,
+    transform:{type:'perspective',quad:[{x:.2,y:.1},{x:.8,y:.1},{x:.8,y:.9},{x:.2,y:.9}],rotationDegrees:180},
+    orientation:{status:'software-rotated',method:'page-corners-plus-180',clockwiseDegrees:180}});
+  assert.equal(h.canvas('result').hidden,false);
+  assert.ok(find(h.card('result'),node=>node.textContent==='Straightened + 180° · frozen preview · filter preview unavailable'));
+  assert.equal(find(h.card('result'),node=>node.textContent.startsWith('Upright')),undefined);h.ui.destroy();
 });

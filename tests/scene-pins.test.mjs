@@ -445,6 +445,11 @@ test('seated mapping stays explicitly approximate through model previews and fin
 
 const fallbackObject=frame=>({status:'ready',width:frame.width,height:frame.height,crop:{x:.2,y:.25,width:.4,height:.5},label:'Notebook',
   model:{id:'test-scene-model',name:'Explicit scene fixture'}});
+function documentObject(frame){
+  const quad=[{x:.2,y:.25},{x:.6,y:.25},{x:.6,y:.75},{x:.2,y:.75}];
+  return {...fallbackObject(frame),documentKind:'notebook',quad,transform:{type:'perspective',quad,rotationDegrees:180},
+    orientation:{status:'software-rotated',method:'page-corners-plus-180',clockwiseDegrees:180}};
+}
 
 test('valid local keyboard or laptop detections reach one configured desk-object fallback instead of becoming the pin',async()=>{
   for(const label of ['keyboard','laptop','TV']){
@@ -534,15 +539,15 @@ test('validated fixed perspective geometry is preserved through pin creation wit
   quad[0].x=.5;assert.equal(outcome.quad[0].x,.22,'model output cannot later alter the fixed crop geometry');
 });
 
-test('parsed upright page corners and arbitrary reading rotations reach the live pin, debug result and outcome unchanged',async()=>{
-  for(const correction of [
-    {planar:true,corners:[{x:600,y:750},{x:200,y:750},{x:200,y:250},{x:600,y:250}],rotation_degrees:180},
-    {planar:false,corners:[],rotation_degrees:-8.25},
+test('parsed page geometry and the software 180-degree turn reach the live pin, debug result and outcome unchanged',async()=>{
+  for(const corners of [
+    [{x:200,y:250},{x:600,y:250},{x:600,y:750},{x:200,y:750}],
+    [{x:250,y:280},{x:580,y:250},{x:600,y:700},{x:200,y:750}],
   ]){
     const traces=[];let selection,expectedTransform,expectedOrientation;
     const h=fixture({isDebugEnabled:()=>true,createCanvas:debugCanvas,onDebug:event=>traces.push(event),
       selectFallbackRegion:async({frame})=>{
-        const value={status:'found',label:'Notebook',document_type:'notebook',bounds:{left:200,top:250,right:600,bottom:750},orientation:'text-upright',...correction};
+        const value={status:'found',label:'Notebook',document_type:'notebook',corners};
         const response={status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify(value)}]}]};
         selection=parseDeskObjectResponse(response,{width:frame.width,height:frame.height,model:'explicit-response-fixture'});
         expectedTransform=structuredClone(selection.transform);expectedOrientation={...selection.orientation};
@@ -550,6 +555,8 @@ test('parsed upright page corners and arbitrary reading rotations reach the live
       }});
     h.signalTo(null);const intent=h.controller.freezeIntent(),outcome=await h.controller.pin(intent);
     assert.equal(outcome.status,'pinned');assert.equal(h.leases.length,1);assert.equal(h.added.length,1);
+    assert.equal(expectedTransform.rotationDegrees,180);
+    assert.deepEqual(expectedOrientation,{status:'software-rotated',method:'page-corners-plus-180',clockwiseDegrees:180});
     assert.deepEqual(h.added[0].options.transform,expectedTransform);assert.deepEqual(outcome.transform,expectedTransform);
     assert.deepEqual(outcome.orientation,expectedOrientation);assert.equal(Object.isFrozen(outcome.orientation),true);
     assert.deepEqual(traces.find(event=>event.pass==='scene-object-fallback').orientation,expectedOrientation);
@@ -662,11 +669,246 @@ test('successful local selection clears the optional budget before retaining the
   assert.equal(cloudCalls,0);assert.equal(timers.scheduled.length,1);assert.equal(timers.cleared.length,1);assert.equal(timers.pending.size,0);
 });
 
+test('successful local gaze selection receives one document-corner refinement after its budget closes and preserves gaze provenance',async()=>{
+  for(const {make,segmenter,method,calibrated} of [
+    {make:fixture,method:'calibrated-gaze-object',calibrated:true},
+    {make:seatedFixture,method:'seated-gaze-object',calibrated:false},
+    {make:fixture,segmenter:{async segment(frame){return segmented(frame);}},method:'calibrated-gaze-segmentation',calibrated:true},
+  ]){
+    const timers=budgetTimers(),calls=[],traces=[],pins=[];let response;
+    const h=make({...timers,...(segmenter?{segmenter}:{}),getFallbackAvailable:()=>true,
+      selectFallbackRegion(){assert.fail('local success must not run object-only fallback');},
+      isDebugEnabled:()=>true,createCanvas:debugCanvas,onDebug:event=>traces.push(event),
+      refineSelectedRegion(request){
+        calls.push(request);assert.equal(timers.pending.size,0,'the local timeout is already closed');
+        assert.equal(timers.cleared.length,1);assert.equal(h.leases.length,0,'no camera lease is retained before geometry finishes');
+        assert.strictEqual(request.frame,intent.frame);assert.equal(request.frame.pixels,'frozen-scene');
+        assert.deepEqual([request.frame.width,request.frame.height],[512,640]);
+        assert.strictEqual(request.source,intent.source);assert.equal(request.signal.aborted,false);
+        assert.equal(Object.isFrozen(request.regionHint),true);assert.ok(request.regionHint.width<1&&request.regionHint.height<1);
+        assert.equal(request.allowSceneFallback,true);
+        assert.ok(request.gaze);response=documentObject(request.frame);
+        response.crop.privateMetadata='discard';response.quad[0].privateMetadata='discard';response.transform.privateMetadata='discard';
+        response.orientation.rawResponse='discard';response.rawResponse='discard';return response;
+      },
+      addPin:(lease,options)=>{pins.push({lease,options});return {index:5,scanEnhanced:options.scanEnhanced};}});
+    const intent=h.controller.freezeIntent(),outcome=await h.controller.pin(intent);
+    assert.equal(outcome.status,'pinned');assert.equal(outcome.method,method);assert.equal(outcome.calibrated,calibrated);
+    assert.equal(calls.length,1);assert.equal(h.frames.length,1);assert.equal(h.leases.length,1);assert.equal(pins.length,1);
+    assert.equal(pins[0].lease,h.leases[0]);assert.equal(h.leases[0].stopped,0);
+    assert.equal(pins[0].options.transform.rotationDegrees,180);assert.deepEqual(pins[0].options.transform.quad,response.quad.map(({x,y})=>({x,y})));
+    assert.equal(pins[0].options.documentKind,'notebook');assert.equal(pins[0].options.scanEnhanced,true);
+    assert.equal(pins[0].options.transform.privateMetadata,undefined);assert.equal(pins[0].options.region.privateMetadata,undefined);
+    assert.equal(pins[0].options.quad[0].privateMetadata,undefined);assert.equal(pins[0].options.rawResponse,undefined);
+    assert.equal(Object.isFrozen(pins[0].options.transform),true);assert.equal(Object.isFrozen(pins[0].options.transform.quad[0]),true);
+    assert.deepEqual(outcome.orientation,{status:'software-rotated',method:'page-corners-plus-180',clockwiseDegrees:180});
+    const cornerPass=traces.find(event=>event.pass==='document-corners');assert.ok(cornerPass);
+    assert.equal(traces.filter(event=>event.pass==='document-corners').length,1);assert.equal(cornerPass.calibrated,calibrated);
+    assert.equal(cornerPass.method,method);assert.equal(cornerPass.mappingMethod,outcome.mappingMethod);assert.ok(cornerPass.gaze);
+    assert.equal(cornerPass.transform.rotationDegrees,180);assert.deepEqual(cornerPass.transform,pins[0].options.transform);
+    assert.deepEqual(traces.at(-1).transform,pins[0].options.transform);assert.equal(traces.at(-1).stage,'result');
+    assert.equal(traces.at(-1).calibrated,calibrated);assert.equal(h.events.filter(event=>event.message==='Finding object boundaries.').length,1);
+    assert.equal(h.releases.get(intent.frame),1);
+    response.transform.quad[0].x=0;response.orientation.clockwiseDegrees=0;
+    assert.equal(pins[0].options.transform.quad[0].x,.2);assert.equal(outcome.orientation.clockwiseDegrees,180);
+    h.controller.getCalibration();assert.equal(calls.length,1,'live pin ownership never repeats the model request');
+  }
+});
+
+test('manual regions and already-used object fallback do not receive a second document model request',async()=>{
+  const manual=fixture({pickRegion:async()=>({region:{x:.1,y:.2,width:.4,height:.5}}),
+    refineSelectedRegion(){assert.fail('manual crop must not invoke document refinement');}});
+  manual.signalTo(null);
+  assert.equal((await manual.controller.pin(manual.controller.freezeIntent(),{manual:true})).method,'manual');
+  assert.equal(manual.detections.length,0);assert.equal(manual.leases.length,1);
+  let fallbackCalls=0;
+  const automatic=fixture({selectFallbackRegion:async request=>{fallbackCalls++;return documentObject(request.frame);},
+    refineSelectedRegion(){assert.fail('fallback already supplied document geometry');}});
+  automatic.signalTo(null);const outcome=await automatic.controller.pin(automatic.controller.freezeIntent());
+  assert.equal(outcome.method,'scene-object-fallback');assert.equal(outcome.transform.rotationDegrees,180);
+  assert.equal(fallbackCalls,1);assert.equal(automatic.leases.length,1);assert.equal(automatic.added.length,1);
+});
+
+test('an unconfigured refinement callback can decline without cloud traffic or changing a valid local selection',async()=>{
+  const baseline=fixture(),original=await baseline.controller.pin(baseline.controller.freezeIntent());let calls=0;
+  const h=fixture({refineSelectedRegion:async()=>{calls++;return null;}});
+  const outcome=await h.controller.pin(h.controller.freezeIntent());
+  assert.equal(calls,1);assert.equal(outcome.status,'pinned');assert.equal(outcome.method,original.method);
+  assert.deepEqual(outcome.crop,original.crop);assert.equal(outcome.label,original.label);assert.equal(outcome.transform,undefined);
+  assert.equal(h.leases.length,1);assert.equal(h.detections.length,1);assert.equal(h.added.length,1);
+});
+
+test('ordinary bounding-box results pin through fallback and refinement without document transforms or enhancement',async()=>{
+  for(const route of ['fallback','refinement'])for(const label of ['Dental floss box','Chocolate box','Coffee cup']){
+    const requests=[],traces=[];
+    const select=request=>{
+      requests.push(request);
+      return {status:'ready',width:request.frame.width,height:request.frame.height,label,model:'ordinary-object-fixture',
+        crop:route==='refinement'?{x:request.regionHint.x+.02,y:request.regionHint.y+.02,width:.004,height:.06}
+          :{x:.5,y:.5,width:.004,height:.06},targetMatched:false,scanEnhanced:true};
+    };
+    const h=fixture({isDebugEnabled:()=>true,createCanvas:debugCanvas,onDebug:event=>traces.push(event),
+      ...(route==='fallback'?{selectFallbackRegion:select}:{refineSelectedRegion:select})});
+    if(route==='fallback')h.signalTo(null);
+    const intent=h.controller.freezeIntent(),outcome=await h.controller.pin(intent);
+    assert.equal(outcome.status,'pinned');assert.equal(outcome.label,label);assert.equal(requests.length,1);
+    assert.strictEqual(requests[0].frame,intent.frame);assert.equal(h.frames.length,1);assert.equal(h.leases.length,1);
+    assert.deepEqual(h.added[0].options.region,outcome.crop);assert.equal(outcome.crop.width,.004);
+    for(const key of ['quad','transform','documentKind','scanEnhanced']){
+      assert.equal(h.added[0].options[key],undefined);assert.equal(outcome[key],undefined);
+    }
+    if(route==='refinement'){
+      assert.equal(requests[0].allowSceneFallback,true);assert.equal(Object.isFrozen(requests[0].regionHint),true);
+      assert.equal(outcome.method,'calibrated-gaze-object');assert.equal(outcome.calibrated,true,
+        'computed overlap wins over an untrusted false targetMatched flag');
+      const event=traces.find(event=>event.pass==='object-boundaries');assert.ok(event?.gaze);assert.ok(event.roi);
+      assert.equal(event.confidence,null);assert.equal(event.quad,undefined);assert.equal(event.transform,undefined);
+    }else assert.equal(outcome.method,'scene-object-fallback');
+    assert.equal(traces.at(-1).scanEnhanced,false);assert.equal(h.releases.get(intent.frame),1);
+  }
+});
+
+test('a foreground rescue outside the local gaze crop clears gaze provenance using computed overlap',async()=>{
+  for(const make of [fixture,seatedFixture]){
+    const requests=[],traces=[];let fallbacks=0;
+    const h=make({isDebugEnabled:()=>true,createCanvas:debugCanvas,onDebug:event=>traces.push(event),
+      selectFallbackRegion(){fallbacks++;assert.fail('refinement already supplied an object');},
+      refineSelectedRegion(request){requests.push(request);return {status:'ready',width:request.frame.width,height:request.frame.height,
+        crop:{x:.82,y:.03,width:.1,height:.1},label:'Chocolate box',model:'foreground-fixture',targetMatched:true};}});
+    const intent=h.controller.freezeIntent(),outcome=await h.controller.pin(intent);
+    assert.equal(outcome.status,'pinned');assert.equal(requests.length,1);assert.equal(requests[0].allowSceneFallback,true);
+    assert.strictEqual(requests[0].frame,intent.frame);assert.equal(fallbacks,0);assert.equal(h.leases.length,1);
+    assert.equal(outcome.method,'scene-object-fallback');assert.equal(outcome.calibrated,null);
+    assert.equal(outcome.mappingMethod,'scene-object-model');assert.equal(outcome.gazeQuality,null);
+    assert.deepEqual(outcome.assumptions,[]);assert.equal(outcome.uncertainty,null);assert.equal(outcome.score,null);
+    const event=traces.find(event=>event.pass==='object-boundaries');
+    assert.equal(event.gaze,null);assert.equal(event.roi,null);assert.equal(event.calibrated,null);
+    assert.equal(event.mappingMethod,'scene-object-model');assert.match(event.message,/outside the gaze target/);
+    assert.equal(traces.at(-1).mappingMethod,'scene-object-model');assert.equal(h.releases.get(intent.frame),1);
+  }
+});
+
+test('a semantic AI no-object miss preserves a real same-frame ordinary category detection without another request',async()=>{
+  for(const label of ['Dental floss box','Chocolate box','cup']){
+    const detector={async detect(frame){return {...result(frame,[{...book,label}]),model:{id:'local-detector-fixture'}};}};
+    const baseline=fixture({detector}),original=await baseline.controller.pin(baseline.controller.freezeIntent());
+    const traces=[],requests=[];let fallbacks=0;
+    const h=fixture({detector,isDebugEnabled:()=>true,createCanvas:debugCanvas,onDebug:event=>traces.push(event),
+      selectFallbackRegion(){fallbacks++;assert.fail('retained local detection needs no further model request');},
+      refineSelectedRegion(request){requests.push(request);return {status:'not-found',reason:'scene-object-missing',message:'No desk object found.'};}});
+    const intent=h.controller.freezeIntent(),outcome=await h.controller.pin(intent);
+    assert.equal(outcome.status,'pinned');assert.equal(requests.length,1);assert.strictEqual(requests[0].frame,intent.frame);
+    assert.equal(fallbacks,0);assert.equal(h.frames.length,1);assert.equal(h.leases.length,1);assert.equal(h.added.length,1);
+    assert.equal(outcome.label,label);assert.deepEqual(outcome.crop,original.crop);assert.equal(outcome.score,original.score);
+    assert.equal(outcome.method,original.method);assert.equal(outcome.calibrated,true);assert.equal(outcome.mappingMethod,original.mappingMethod);
+    assert.deepEqual(h.added[0].options.region,original.crop);assert.equal(h.added[0].options.transform,undefined);
+    assert.equal(h.added[0].options.documentKind,undefined);assert.equal(h.added[0].options.scanEnhanced,undefined);
+    const event=traces.find(event=>event.pass==='local-object-recovery');assert.ok(event?.gaze);assert.ok(event.roi);
+    assert.equal(event.confidence,.83);assert.equal(event.scoreKind,'detector-category-score');
+    assert.equal(event.model.id,'local-detector-fixture');assert.equal(event.boxes[0].label,label);assert.equal(event.boxes[0].score,.83);
+    assert.match(event.message,/AI found no object; kept/);assert.equal(traces.some(event=>event.stage==='error'),false);
+    assert.equal(h.events.at(-1).actionState,'pinned');assert.equal(h.releases.get(intent.frame),1);
+  }
+});
+
+test('AI no-object misses cannot recover unlabeled segmentation, documents, generic objects, bodies or camera hardware',async()=>{
+  const miss=()=>({status:'not-found',reason:'scene-object-missing',message:'No desk object found.'});
+  const segmentedCase=fixture({segmenter:{async segment(frame){return segmented(frame);}},refineSelectedRegion:miss});
+  assert.equal((await segmentedCase.controller.pin(segmentedCase.controller.freezeIntent())).status,'not-found');
+  assert.equal(segmentedCase.leases.length,0);assert.equal(segmentedCase.added.length,0);
+  for(const label of ['book','Notebook','paper','document','unknown object','Segmented region','hand','laptop','desk','background']){
+    let calls=0;
+    // A deliberately supplied category result isolates the recovery guard even
+    // for categories rejected earlier by the production ranked detector filter.
+    const crop={x:.2,y:.3,width:.2,height:.2},object={label,score:.9,bbox:crop};
+    const h=fixture({selectRegion:()=>({status:'ready',selection:'object',object,crop,label,score:.9}),
+      refineSelectedRegion(){calls++;return miss();}});
+    const outcome=await h.controller.pin(h.controller.freezeIntent());
+    assert.equal(calls,1);assert.equal(outcome.status,'not-found',label);assert.equal(outcome.reason,'scene-object-missing');
+    assert.equal(h.leases.length,0);assert.equal(h.added.length,0);
+  }
+});
+
+test('ordinary local detections cannot hide document-corner failures, API errors or invalid model geometry',async()=>{
+  for(const refineSelectedRegion of [
+    async()=>({status:'not-found',reason:'scene-corners-unavailable',message:'Four paper corners are required.'}),
+    async()=>({status:'not-found',reason:'openai-key-required',message:'Add an API key.'}),
+    async()=>{throw Object.assign(new Error('The API key was rejected.'),{code:'OPENAI_REQUEST_FAILED'});},
+    async()=>{throw Object.assign(new Error('Could not connect.'),{code:'OPENAI_CONNECTION_FAILED'});},
+    async()=>({status:'unexpected'}),
+    async({frame})=>({...fallbackObject(frame),label:'cup',width:1}),
+    async({frame})=>({...fallbackObject(frame),label:'cup',crop:{x:-.1,y:.2,width:.3,height:.3}}),
+  ]){
+    let calls=0;
+    const h=fixture({detector:{async detect(frame){return result(frame,[{...book,label:'cup'}]);}},
+      refineSelectedRegion:request=>{calls++;return refineSelectedRegion(request);},
+      selectFallbackRegion(){assert.fail('a refinement error must not send another model request');}});
+    const intent=h.controller.freezeIntent(),outcome=await h.controller.pin(intent);
+    assert.ok(['not-found','error'].includes(outcome.status));assert.equal(calls,1);
+    assert.equal(h.leases.length,0);assert.equal(h.added.length,0);assert.equal(h.releases.get(intent.frame),1);
+  }
+});
+
+test('cancellation and source changes cannot save late ordinary foreground rescue or local recovery results',async()=>{
+  for(const change of [h=>h.controller.cancel(),h=>h.sourceTo({...h.source,generation:3}),h=>h.rolesTo('other-role')])
+    for(const response of ['ready','missing']){
+      const waiting=deferred();let request;
+      const h=fixture({detector:{async detect(frame){return result(frame,[{...book,label:'cup'}]);}},
+        refineSelectedRegion:value=>{request=value;return waiting.promise;}});
+      const intent=h.controller.freezeIntent(),run=h.controller.pin(intent);await flush();assert.ok(request);
+      change(h);waiting.resolve(response==='ready'?{...fallbackObject(request.frame),label:'Chocolate box',crop:{x:.8,y:.05,width:.1,height:.1}}
+        :{status:'not-found',reason:'scene-object-missing'});
+      assert.equal((await run).status,'cancelled');assert.equal(h.leases.length,0);assert.equal(h.added.length,0);
+      assert.equal(h.releases.get(intent.frame),1);assert.equal(h.releases.get(h.crops[0].canvas),1);
+    }
+});
+
+test('document refinement misses, invalid geometry and service failures stop without silently saving the local crop',async()=>{
+  for(const refineSelectedRegion of [
+    async()=>({status:'not-found',reason:'scene-corners-unavailable',message:'Keep all four notebook corners visible.'}),
+    async()=>{throw new Error('The selected model is unavailable.');},
+    async()=>({status:'unexpected'}),
+    async({frame})=>({...documentObject(frame),width:1}),
+    async({frame})=>({...documentObject(frame),crop:{x:-.1,y:.1,width:.4,height:.5}}),
+    async({frame})=>({...documentObject(frame),transform:null}),
+    async({frame})=>({...documentObject(frame),transform:{...documentObject(frame).transform,rotationDegrees:0}}),
+    async({frame})=>({...documentObject(frame),quad:documentObject(frame).quad.toReversed()}),
+  ]){
+    let fallbackCalls=0;
+    const h=fixture({refineSelectedRegion,selectFallbackRegion:async()=>{fallbackCalls++;return null;}});
+    const intent=h.controller.freezeIntent(),outcome=await h.controller.pin(intent);
+    assert.ok(['not-found','error'].includes(outcome.status));assert.ok(outcome.message);
+    assert.equal(h.leases.length,0);assert.equal(h.added.length,0);assert.equal(fallbackCalls,0,'refinement failure is reported, not sent to another paid attempt');
+    assert.equal(h.releases.get(intent.frame),1);assert.equal(h.events.at(-1).actionState,outcome.status);
+  }
+});
+
+test('explicit document results without fixed correction are rejected on the shared fallback path too',async()=>{
+  for(const transform of [undefined,null,{type:'perspective',quad:documentObject({width:512,height:640}).quad,rotationDegrees:0}]){
+    const h=fixture({selectFallbackRegion:async({frame})=>({...documentObject(frame),transform})});h.signalTo(null);
+    const outcome=await h.controller.pin(h.controller.freezeIntent());
+    assert.equal(outcome.status,'error');assert.equal(h.added.length,0);assert.equal(h.leases.length,0);
+  }
+});
+
+test('cancellation and camera or gaze changes discard a late refinement before retaining a live source',async()=>{
+  for(const change of [h=>h.controller.cancel(),h=>h.sourceTo({...h.source,generation:3}),
+    h=>h.gazeTo({sourceId:'rgb',generation:2,width:1280,height:720,live:true}),h=>h.rolesTo('different-role'),
+    h=>h.modeTo('calibrated'),h=>h.controller.clearCalibration()]){
+    const waiting=deferred();let request;
+    const h=fixture({refineSelectedRegion:value=>{request=value;return waiting.promise;}});
+    const intent=h.controller.freezeIntent(),run=h.controller.pin(intent);await flush();assert.ok(request);
+    change(h);waiting.resolve(documentObject(request.frame));const outcome=await run;
+    assert.equal(outcome.status,'cancelled');assert.equal(h.leases.length,0);assert.equal(h.added.length,0);
+    assert.equal(h.releases.get(intent.frame),1);assert.equal(h.releases.get(h.crops[0].canvas),1);
+  }
+});
+
 test('only explicitly classified paper or notebook fallback captures request automatic scan enhancement',async()=>{
   for(const documentKind of ['paper','notebook',undefined,null,'book','Paper','phone',true,{kind:'paper'}]){
     const calls=[],pins=[],traces=[];
     const h=fixture({isDebugEnabled:()=>true,createCanvas:debugCanvas,onDebug:event=>traces.push(event),
-      selectFallbackRegion:async request=>{calls.push(request);return {...fallbackObject(request.frame),documentKind,
+      selectFallbackRegion:async request=>{calls.push(request);return {...documentObject(request.frame),documentKind,
         scanEnhanced:true,originalFrame:'must-not-transfer',apiKey:'must-not-transfer',privateMetadata:'must-not-transfer'};},
       addPin:(lease,options)=>{pins.push({lease,options});return {index:7,scanEnhanced:options.scanEnhanced===true};}});
     h.signalTo(null);const intent=h.controller.freezeIntent(),outcome=await h.controller.pin(intent);
@@ -687,7 +929,7 @@ test('scene debug reports the actual saved filter state when enhancement fails w
   for(const scanEnhanced of [false,undefined]){
     const requests=[],pins=[],traces=[];
     const h=fixture({isDebugEnabled:()=>true,createCanvas:debugCanvas,onDebug:event=>traces.push(event),
-      selectFallbackRegion:async request=>{requests.push(request);return {...fallbackObject(request.frame),documentKind:'notebook'};},
+      selectFallbackRegion:async request=>{requests.push(request);return documentObject(request.frame);},
       addPin:(lease,options)=>{pins.push({lease,options});return {index:3,...(scanEnhanced!==undefined?{scanEnhanced}:{})};}});
     h.signalTo(null);const outcome=await h.controller.pin(h.controller.freezeIntent());
     assert.equal(pins[0].options.scanEnhanced,true,'creation asks the board for document enhancement');
@@ -708,7 +950,7 @@ test('scene corner-verification metadata is copied, whitelisted and immutable in
   ]){
     const traces=[];
     const h=fixture({isDebugEnabled:()=>true,createCanvas:debugCanvas,onDebug:event=>traces.push(event),
-      selectFallbackRegion:async({frame})=>({...fallbackObject(frame),documentKind:'paper',cornerRefinement:supplied})});
+      selectFallbackRegion:async({frame})=>({...documentObject(frame),documentKind:'paper',cornerRefinement:supplied})});
     h.signalTo(null);const outcome=await h.controller.pin(h.controller.freezeIntent());
     assert.equal(outcome.status,'pinned');
     const model=traces.find(event=>event.pass==='scene-object-fallback'),final=traces.at(-1);

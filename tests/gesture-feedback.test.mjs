@@ -37,7 +37,7 @@ test('holding the fired pin pose cannot erase success or failure feedback on the
   }
 });
 
-test('a fresh 1.5-second hold can replace old capture feedback with its own progress',()=>{
+test('a fresh 0.75-second hold can replace old capture feedback with its own progress',()=>{
   const h=feedbackHarness({phase:'holding',actionState:'error'});h.update();
   assert.equal(h.calls.cleared,1);assert.equal(h.state.captureGesture.actionState,'idle');
   assert.equal(h.state.captureGesture.kind,'pin');assert.equal(h.state.captureGesture.phase,'holding');
@@ -180,19 +180,19 @@ test('actual call HUD keeps two accepted dots beside progress and the terminal r
   render({kind:'snapshot',completed:0,pinched:false,actionState:'idle'});assert.equal(element('callGesture').hidden,true);
 });
 
-test('actual hold HUD and accessible timing follow the shared 1.5-second default without completing early',async()=>{
+test('actual hold HUD and accessible timing follow the shared 0.75-second default without completing early',async()=>{
   const {render,element}=await callHudHarness();
-  for(const heldMs of [0,750,1499,1500]){
-    render({kind:'pin',phase:heldMs===1500?'latched':'holding',holding:true,progress:heldMs/DEFAULT_PIN_HOLD_MS,actionState:'idle'});
+  for(const heldMs of [0,375,749,750]){
+    render({kind:'pin',phase:heldMs===750?'latched':'holding',holding:true,progress:heldMs/DEFAULT_PIN_HOLD_MS,actionState:'idle'});
     const ring=element('callPinHold');
-    assert.equal(ring.hidden,false);assert.equal(Number(ring.attributes['aria-valuemax']),1.5);
+    assert.equal(ring.hidden,false);assert.equal(Number(ring.attributes['aria-valuemax']),.75);
     assert.equal(Number(ring.attributes['aria-valuenow']),heldMs/1000);
-    if(heldMs===0)assert.match(element('callGestureStatus').textContent,/1\.5 seconds remaining/);
-    if(heldMs===750)assert.match(ring.style.backgroundImage,/180deg/);
-    if(heldMs===1499){
+    if(heldMs===0)assert.match(element('callGestureStatus').textContent,/0\.75 seconds remaining/);
+    if(heldMs===375)assert.match(ring.style.backgroundImage,/180deg/);
+    if(heldMs===749){
       assert.ok(Number(ring.attributes['aria-valuenow'])<Number(ring.attributes['aria-valuemax']));
-      assert.match(element('callGestureStatus').textContent,/0\.1 seconds remaining/);
+      assert.match(element('callGestureStatus').textContent,/0\.01 seconds remaining/);
     }
-    if(heldMs===1500)assert.match(element('callGestureStatus').textContent,/Lower your fingers/);
+    if(heldMs===750)assert.match(element('callGestureStatus').textContent,/Lower your fingers/);
   }
 });

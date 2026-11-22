@@ -6,7 +6,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 DEST = ROOT / 'dist' / 'downloads' / 'aperture-local.zip'
-SKIP = {'.git', '.venv', '.venv-gpu', '__pycache__', 'node_modules', 'tmp', 'downloads', '__scene_qa', '__gaze_qa', '__gpu_qa', '__capture_qa'}
+SKIP = {'.git', '.venv', '.venv-gpu', '__pycache__', 'node_modules', 'tmp', 'downloads', '__scene_qa', '__gaze_qa', '__gpu_qa', '__capture_qa', '__object_qa'}
 # Static hosting limits each downloadable file to 25 MiB. The optional object and segmentation
 # models are restored by the launcher from its pinned, hash-verified manifest URL.
 # They remain normal same-origin assets in the live app and full Git checkout.

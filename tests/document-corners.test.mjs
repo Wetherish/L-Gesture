@@ -156,6 +156,21 @@ test('selection refinement keeps raw-frame ownership and unrelated model metadat
   assert.equal(h.canvases[0].width, 0);assert.equal(h.canvases[0].height, 0);
 });
 
+test('four real document edges still refine before the mandatory software 180-degree turn', () => {
+  const image = fixture(), h = canvasFactory(image), originalQuad = normalize(shifted(PAGE));
+  const input = selection(originalQuad, {transform: {type: 'perspective', quad: originalQuad, rotationDegrees: 180},
+    orientation: {status: 'software-rotated', method: 'page-corners-plus-180', clockwiseDegrees: 180}});
+  const before = structuredClone(input), result = refineDocumentSelection({width: W, height: H}, input, h);
+  assert.deepEqual(input, before);assert.deepEqual(result.cornerRefinement, {method: 'edge-refined', verifiedEdges: 4});
+  assert.equal(result.transform.rotationDegrees, 180);assert.deepEqual(result.orientation, before.orientation);
+  assert.notDeepEqual(result.quad, originalQuad);
+  const geometry = perspectiveOutputGeometry(result.transform, W, H);
+  for (const [index, [x, y]] of [[2, [0, 0]], [3, [1, 0]], [0, [1, 1]], [1, [0, 1]]]) {
+    const source = projectPerspective(geometry.matrix, x, y);
+    near(source.x, result.quad[index].x);near(source.y, result.quad[index].y);
+  }
+});
+
 test('ambiguous or inaccessible Canvas readback retains original model corners with honest evidence metadata', () => {
   for (const options of [{missingContext: true}, {missingReadback: true}, {readError: true}, {}]) {
     const h = canvasFactory(fixture({background: 220, paper: 220}), options), input = selection(), before = structuredClone(input);

@@ -30,8 +30,8 @@ function frame(timestamp, {pose = true, labels = ['Right'], width = 1000, height
 
 function harness(options = {}) {
   const events = [], detector = createPinHoldDetector({...options, onTrigger: event => events.push(event)});
-  let now = -100, timestamp = -100, lastFrame;
-  const fresh = (params = {}, context = {}, delta = 100, sourceDelta = delta) => {
+  let now = -50, timestamp = -50, lastFrame;
+  const fresh = (params = {}, context = {}, delta = 50, sourceDelta = delta) => {
     now += delta;timestamp += sourceDelta;lastFrame = frame(timestamp, params);
     return detector.update(lastFrame, {now, sourceId: params.sourceId ?? 'camera-a', ...context});
   };
@@ -39,23 +39,23 @@ function harness(options = {}) {
     let result;for (let i = 0; i < count; i++) result = fresh(params, context);return result;
   };
   const repeat = (delta = 16, context = {}) => {now += delta;return detector.update(lastFrame, {now, sourceId: 'camera-a', ...context});};
-  const missing = (delta = 100, context = {}) => {now += delta;timestamp += delta;return detector.update(null, {now, sourceId: 'camera-a', ...context});};
+  const missing = (delta = 50, context = {}) => {now += delta;timestamp += delta;return detector.update(null, {now, sourceId: 'camera-a', ...context});};
   return {detector, events, fresh, hold, repeat, missing, getNow: () => now, getFrame: () => lastFrame};
 }
 
-test('default hold cannot fire at 1499 ms and fires exactly once on the fresh 1500 ms observation', () => {
-  assert.equal(DEFAULT_PIN_HOLD_MS, 1500);
+test('default hold cannot fire at 749 ms and fires exactly once on the fresh 750 ms observation', () => {
+  assert.equal(DEFAULT_PIN_HOLD_MS, 750);
   const h = harness();
   const start = h.fresh();assert.equal(start.kind, 'pin');assert.equal(start.phase, 'holding');
-  assert.equal(start.progress, 0);assert.equal(start.remainingMs, 1500);
-  h.hold(7);const middle = h.fresh({}, {}, 50);
-  assert.equal(middle.heldMs, 750);assert.equal(middle.progress, .5);assert.equal(middle.triggered, false);
+  assert.equal(start.progress, 0);assert.equal(start.remainingMs, 750);
+  h.hold(7);const middle = h.fresh({}, {}, 25);
+  assert.equal(middle.heldMs, 375);assert.equal(middle.progress, .5);assert.equal(middle.triggered, false);
   h.hold(7);assert.equal(h.events.length, 0);
-  const before = h.fresh({}, {}, 49);
-  assert.equal(before.heldMs, 1499);assert.equal(before.remainingMs, 1);assert.equal(before.triggered, false);
-  assert.equal(before.progress, 1499 / 1500);assert.equal(h.events.length, 0);
+  const before = h.fresh({}, {}, 24);
+  assert.equal(before.heldMs, 749);assert.equal(before.remainingMs, 1);assert.equal(before.triggered, false);
+  assert.equal(before.progress, 749 / 750);assert.equal(h.events.length, 0);
   const done = h.fresh({}, {}, 1);assert.equal(done.triggered, true);assert.equal(done.phase, 'latched');
-  assert.equal(done.progress, 1);assert.equal(done.heldMs, 1500);assert.equal(done.holding, true);
+  assert.equal(done.progress, 1);assert.equal(done.heldMs, 750);assert.equal(done.holding, true);
   assert.equal(h.events.length, 1);assert.deepEqual(h.events[0], done);
   assert.equal(h.detector.getState().triggered, false);
   assert.equal(h.hold(60).triggered, false);assert.equal(h.events.length, 1);
@@ -66,9 +66,9 @@ test('default hold cannot fire at 1499 ms and fires exactly once on the fresh 15
 test('an explicitly configured longer hold still waits for its requested duration', () => {
   const h = harness({holdMs: 3000});h.fresh();
   const defaultBoundary = h.hold(15);
-  assert.equal(defaultBoundary.heldMs, 1500);assert.equal(defaultBoundary.remainingMs, 1500);
+  assert.equal(defaultBoundary.heldMs, 750);assert.equal(defaultBoundary.remainingMs, 2250);
   assert.equal(defaultBoundary.triggered, false);assert.equal(h.events.length, 0);
-  h.hold(14);assert.equal(h.events.length, 0);
+  h.hold(44);assert.equal(h.events.length, 0);
   assert.equal(h.fresh().triggered, true);assert.equal(h.events.length, 1);
 });
 
@@ -92,24 +92,24 @@ test('only advancing hands samples count when other tasks or wrapper timestamps 
   assert.equal(h.events.length, 0);
 });
 
-test('source and host clocks must each reach 1.5 seconds, including the 1499 ms boundary and different native origins', () => {
+test('source and host clocks must each reach 0.75 seconds, including the 749 ms boundary and different native origins', () => {
   const h = harness();
-  for (let i = 0; i < 31; i++) h.fresh({native: true}, {}, 100, 25);
-  assert.equal(h.events.length, 0);assert.equal(h.detector.getState().heldMs, 750);
+  for (let i = 0; i < 16; i++) h.fresh({native: true}, {}, 100, 25);
+  assert.equal(h.events.length, 0);assert.equal(h.detector.getState().heldMs, 375);
   for (const slowerClock of ['source', 'host']) {
     const detector = createPinHoldDetector();
-    for (let time = 0; time <= 1400; time += 100)
+    for (let time = 0; time <= 700; time += 50)
       assert.equal(detector.update(frame(1_000_000 + time, {native: true}), {now: 5000 + time, sourceId: 'camera-a'}).triggered, false);
-    const sourceElapsed = slowerClock === 'source' ? 1499 : 1500;
-    const hostElapsed = slowerClock === 'host' ? 1499 : 1500;
+    const sourceElapsed = slowerClock === 'source' ? 749 : 750;
+    const hostElapsed = slowerClock === 'host' ? 749 : 750;
     const before = detector.update(frame(1_000_000 + sourceElapsed, {native: true}), {now: 5000 + hostElapsed, sourceId: 'camera-a'});
-    assert.equal(before.heldMs, 1499);assert.equal(before.remainingMs, 1);assert.equal(before.triggered, false);
+    assert.equal(before.heldMs, 749);assert.equal(before.remainingMs, 1);assert.equal(before.triggered, false);
     const done = detector.update(frame(1_000_001 + sourceElapsed, {native: true}), {now: 5001 + hostElapsed, sourceId: 'camera-a'});
-    assert.equal(done.heldMs, 1500);assert.equal(done.triggered, true);
+    assert.equal(done.heldMs, 750);assert.equal(done.triggered, true);
   }
   const fastSource = harness();
-  for (let i = 0; i < 31; i++) fastSource.fresh({native: true}, {}, 25, 100);
-  assert.equal(fastSource.events.length, 0);assert.equal(fastSource.detector.getState().heldMs, 750);
+  for (let i = 0; i < 16; i++) fastSource.fresh({native: true}, {}, 25, 100);
+  assert.equal(fastSource.events.length, 0);assert.equal(fastSource.detector.getState().heldMs, 375);
 });
 
 test('tracking gaps, loss, invalid frames and partial poses restart the full hold', () => {
@@ -119,9 +119,9 @@ test('tracking gaps, loss, invalid frames and partial poses restart the full hol
     const h = harness();h.hold(15);interrupt(h);
     assert.equal(h.detector.getState().progress, 0);assert.equal(h.events.length, 0);
     // A fresh valid frame after a long gap starts at zero immediately; invalid
-    // observations need the next frame to start. Both require a new 1.5-second hold.
+    // observations need the next frame to start. Both require a new 0.75-second hold.
     h.hold(h.detector.getState().holding ? 14 : 15);
-    assert.equal(h.detector.getState().heldMs, 1400);assert.equal(h.events.length, 0);
+    assert.equal(h.detector.getState().heldMs, 700);assert.equal(h.events.length, 0);
     assert.equal(h.fresh().triggered, true);assert.equal(h.events.length, 1);
   }
 });
@@ -145,7 +145,7 @@ test('unique classified Right hand is required; mirror and Left/Right array orde
   assert.equal(result.triggered, true);assert.equal(h.events.length, 1);
 });
 
-test('aspect ratio and hand size do not change the 1.5-second pose condition', () => {
+test('aspect ratio and hand size do not change the 0.75-second pose condition', () => {
   for (const params of [{width: 1920, height: 1080, scale: .6}, {width: 720, height: 1280}, {width: 640, height: 480, scale: 1.2}]) {
     const h = harness();assert.equal(h.hold(16, params).triggered, true);
   }
@@ -171,7 +171,7 @@ test('source/session/geometry changes and explicit or abrupt hand replacements c
     const h = harness();h.hold(15, {handId: params.handId ? 'a' : undefined});
     assert.equal(h.fresh(params).progress, 0);
     h.hold(h.detector.getState().holding ? 14 : 15, params);
-    assert.equal(h.detector.getState().heldMs, 1400);assert.equal(h.events.length, 0);
+    assert.equal(h.detector.getState().heldMs, 700);assert.equal(h.events.length, 0);
     assert.equal(h.fresh(params).triggered, true);assert.equal(h.events.length, 1);
   }
   const h = harness();h.hold(15);
@@ -199,7 +199,7 @@ test('replay/synthetic/stale markings and clock reversals reset progress without
     const h = harness();h.hold(15);h.fresh({rawExtra});assert.equal(h.detector.getState().progress, 0);
   }
   const h = harness();h.hold(15, {native: true});
-  const backwards = h.detector.update(frame(1000, {native: true}), {now: 2000, sourceId: 'camera-a'});
+  const backwards = h.detector.update(frame(500, {native: true}), {now: 2000, sourceId: 'camera-a'});
   assert.equal(backwards.reason, 'timestamp-reset');assert.equal(backwards.holding, false);assert.equal(backwards.progress, 0);
   const clock = h.detector.update(frame(900), {now: 900, sourceId: 'camera-a'});
   assert.equal(clock.reason, 'clock-reset');assert.equal(h.events.length, 0);
