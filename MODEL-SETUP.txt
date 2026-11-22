@@ -1,0 +1,7 @@
+The live Roofcat app already serves its object and gaze segmentation models.
+For the optional local copy, start-macos.command restores the models automatically.
+Manual setup: python3 scripts/vendor-mediapipe.py --fetch
+The download is checked against the bundled SHA-256 manifest before use.
+Optional NVIDIA GPU models: run bridge/start-gpu-windows.cmd on Windows.
+This installs a separate CUDA environment and all three pinned SAM 2.1 models.
+The public weights stay in your user cache; inference stays on this laptop.

@@ -1,0 +1,6 @@
+# PyTorch CUDA wheels are installed separately by setup_gpu.py.
+# This runtime uses public, pinned, hash-verified Meta SAM 2.1 safetensors.
+transformers==4.57.3
+aiohttp>=3.10,<4
+numpy>=1.26,<3
+Pillow>=10.4,<12
